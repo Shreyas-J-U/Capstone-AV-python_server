@@ -68,6 +68,8 @@ def make_observation(
     episode_id,
     step_id,
     frame_id,
+    terminated=False,
+    reason="",
 ):
 
     return Observation(
@@ -90,11 +92,11 @@ def make_observation(
             ),
         ],
 
-        reward=0.5,
+        reward=-10.0 if terminated else 0.5,
 
         termination=Termination(
-            terminated=False,
-            reason="",
+            terminated=terminated,
+            reason=reason,
         ),
     )
 
@@ -193,6 +195,13 @@ def main():
             "HELLO/HELLO_ACK handshake successful."
         )
 
+        # Wait for RESET from UERLEnvironment before sending initial observation
+        message_type, payload = receive_message(sock)
+        if message_type == MessageType.RESET:
+            print("Received RESET message from Python server.")
+        else:
+            raise RuntimeError(f"Expected RESET message, received type={message_type}")
+
         # ==================================================
         # OBSERVATION → ACTION LOOP
         # ==================================================
@@ -207,10 +216,13 @@ def main():
             # Create observation
             # ----------------------------------------------
 
+            is_last = (step_id == args.steps - 1)
             observation = make_observation(
                 episode_id=episode_id,
                 step_id=step_id,
                 frame_id=frame_id,
+                terminated=is_last,
+                reason="Max steps reached" if is_last else "",
             )
 
             payload = serialize_observation(

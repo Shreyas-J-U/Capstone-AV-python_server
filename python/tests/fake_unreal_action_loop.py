@@ -243,6 +243,13 @@ def main():
             "HELLO/HELLO_ACK handshake successful."
         )
 
+        # Wait for RESET from UERLEnvironment before sending initial observation
+        message_type, payload = receive_message(sock)
+        if message_type == MessageType.RESET:
+            print("Received RESET message from Python server.")
+        else:
+            raise RuntimeError(f"Expected RESET message, received type={message_type}")
+
         # ==================================================
         # Observation -> Action loop
         # ==================================================
