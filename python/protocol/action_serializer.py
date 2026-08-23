@@ -7,6 +7,8 @@ UINT64 = struct.Struct("<Q")
 FLOAT32 = struct.Struct("<f")
 UINT8 = struct.Struct("<B")
 
+ACTION_SIZE = UINT64.size * 2 + FLOAT32.size * 2 + UINT8.size  # 25 bytes
+
 
 def serialize_action(action: Action) -> bytes:
 

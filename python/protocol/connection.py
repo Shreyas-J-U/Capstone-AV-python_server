@@ -34,3 +34,7 @@ class ProtocolConnection:
         )
 
         return message_type, payload
+
+    def close(self):
+        if hasattr(self.transport, "close"):
+            self.transport.close()

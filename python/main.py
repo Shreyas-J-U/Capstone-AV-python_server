@@ -2,286 +2,95 @@ import argparse
 
 from transport.tcp_server import TCPServer
 from protocol.connection import ProtocolConnection
-from protocol.constants import MessageType
-
-from protocol.observation_deserializer import (
-    deserialize_observation,
-)
-
-from protocol.action_serializer import (
-    serialize_action,
-)
-
+from environment.ue_environment import UERLEnvironment
 from agents.test_agent import MyAgent
 
 
 def main():
-
-    parser = argparse.ArgumentParser(
-        description="RL TCP server for Unreal"
-    )
-
+    parser = argparse.ArgumentParser(description="RL TCP Server for Unreal Engine 5")
+    parser.add_argument("--host", default="127.0.0.1", help="Binding host address")
+    parser.add_argument("--port", type=int, required=True, help="Listening TCP port")
     parser.add_argument(
-        "--host",
-        default="127.0.0.1",
-    )
-
-    parser.add_argument(
-        "--port",
+        "--episodes",
         type=int,
-        required=True,
+        default=3,
+        help="Number of episodes to execute with connected Unreal client",
     )
-
     args = parser.parse_args()
 
-    server = TCPServer(
-        host=args.host,
-        port=args.port,
-    )
+    server = TCPServer(host=args.host, port=args.port)
 
     try:
-
-        # ==================================================
-        # START TCP SERVER
-        # ==================================================
-
         server.start()
-
+        print(f"Python RL Server listening on {args.host}:{args.port}...")
         server.accept()
+        print("Unreal client connected successfully.")
 
-        print(
-            "Unreal connection established."
-        )
+        connection = ProtocolConnection(server)
+        env = UERLEnvironment(connection)
 
-        connection = ProtocolConnection(
-            server
-        )
-
-        # ==================================================
-        # CREATE TEST AGENT
-        # ==================================================
+        print("Executing HELLO / HELLO_ACK protocol handshake...")
+        env.perform_handshake()
+        print("Handshake OK!")
 
         agent = MyAgent()
 
-        # ==================================================
-        # HELLO
-        # ==================================================
-
-        print(
-            "Waiting for HELLO..."
-        )
-
-        message_type, payload = (
-            connection.receive_message()
-        )
-
-        if message_type != MessageType.HELLO:
-
-            raise ConnectionError(
-                "Expected HELLO message, "
-                f"received type={message_type}"
+        for ep in range(1, args.episodes + 1):
+            print(f"\n=================== EPISODE {ep} START ===================")
+            
+            # 1. Reset environment for new episode
+            obs = env.reset()
+            print(
+                f"[Server] Initial Obs received: ep={obs.episode_id}, step={obs.step_id}, "
+                f"sim_time={obs.simulation_time:.2f}s"
             )
 
-        print(
-            f"Received HELLO "
-            f"({len(payload)} bytes)"
-        )
+            terminated = False
+            total_reward = obs.reward
+            step_count = 0
 
-        print(
-            f"HELLO payload: {payload!r}"
-        )
+            # 2. Episode step loop
+            while not terminated:
+                action = agent.act(obs)
 
-        # ==================================================
-        # HELLO ACK
-        # ==================================================
+                next_obs, reward, terminated, info = env.step(action)
+                step_count += 1
+                total_reward += reward
 
-        connection.send_message(
-            MessageType.HELLO_ACK,
-            b"Hello from Python!",
-        )
+                print(
+                    f"[Server] Step {next_obs.step_id} executed: "
+                    f"reward={reward:.2f}, terminated={terminated}, info={info}"
+                )
 
-        print(
-            "Sent HELLO_ACK"
-        )
+                # Train agent on transition
+                transition = {
+                    "obs": obs,
+                    "action": action,
+                    "reward": reward,
+                    "next_obs": next_obs,
+                    "terminated": terminated,
+                }
+                agent.train(transition)
 
-        print()
-        print(
-            "Handshake successful."
-        )
+                obs = next_obs
 
-        # ==================================================
-        # OBSERVATION → AGENT → ACTION LOOP
-        # ==================================================
-
-        print(
-            "Waiting for observations..."
-        )
-
-        while True:
-
-            message_type, payload = (
-                connection.receive_message()
+            print(
+                f"=================== EPISODE {ep} END ===================\n"
+                f"Total Steps: {step_count} | Total Episode Reward: {total_reward:.2f}\n"
             )
 
-            # ----------------------------------------------
-            # OBSERVATION
-            # ----------------------------------------------
-
-            if message_type == MessageType.OBSERVATION:
-
-                print()
-                print(
-                    f"Received OBSERVATION "
-                    f"({len(payload)} bytes)"
-                )
-
-                # Deserialize Unreal payload
-                observation = (
-                    deserialize_observation(
-                        payload
-                    )
-                )
-
-                # ------------------------------------------
-                # Display observation
-                # ------------------------------------------
-
-                print()
-                print(
-                    "========== OBSERVATION =========="
-                )
-
-                print(
-                    f"Episode ID       : "
-                    f"{observation.episode_id}"
-                )
-
-                print(
-                    f"Step ID          : "
-                    f"{observation.step_id}"
-                )
-
-                print(
-                    f"Frame ID         : "
-                    f"{observation.frame_id}"
-                )
-
-                print(
-                    f"Simulation Time  : "
-                    f"{observation.simulation_time}"
-                )
-
-                print(
-                    f"Reward           : "
-                    f"{observation.reward}"
-                )
-
-                print(
-                    f"Terminated       : "
-                    f"{observation.termination.terminated}"
-                )
-
-                print(
-                    f"Termination Reason: "
-                    f"{observation.termination.reason}"
-                )
-
-                print(
-                    f"Image            : "
-                    f"{'present' if observation.image else 'none'}"
-                )
-
-                print(
-                    f"Sensor Count     : "
-                    f"{len(observation.sensors)}"
-                )
-
-                for index, sensor in enumerate(
-                    observation.sensors
-                ):
-
-                    print(
-                        f"  Sensor {index}: "
-                        f"type={sensor.type}, "
-                        f"format={sensor.format}, "
-                        f"data_size={len(sensor.value)}"
-                    )
-
-                print(
-                    "================================="
-                )
-
-                # ------------------------------------------
-                # Agent inference
-                # ------------------------------------------
-
-                action = agent.act(
-                    observation
-                )
-
-                # ------------------------------------------
-                # Serialize action
-                # ------------------------------------------
-
-                action_payload = (
-                    serialize_action(
-                        action
-                    )
-                )
-
-                # ------------------------------------------
-                # Send action to Unreal
-                # ------------------------------------------
-
-                connection.send_message(
-                    MessageType.ACTION,
-                    action_payload,
-                )
-
-                print()
-                print(
-                    f"Sent ACTION "
-                    f"(step={action.step_id}, "
-                    f"{len(action_payload)} bytes)"
-                )
-
-            # ----------------------------------------------
-            # Unexpected message
-            # ----------------------------------------------
-
-            else:
-
-                print(
-                    f"Received unexpected "
-                    f"message type={message_type}"
-                )
+        print("All target episodes completed successfully!")
 
     except KeyboardInterrupt:
-
-        print(
-            "\nStopping server..."
-        )
-
-    except ConnectionError as e:
-
-        print(
-            f"Connection error: {e}"
-        )
-
+        print("\nStopping RL server manually...")
     except Exception as e:
-
-        print(
-            f"Unexpected error: "
-            f"{type(e).__name__}: {e}"
-        )
-
+        print(f"Error during execution: {type(e).__name__}: {e}")
+        raise
     finally:
-
+        if 'env' in locals():
+            env.close()
         server.close()
-
-        print(
-            "Server closed."
-        )
+        print("Server closed.")
 
 
 if __name__ == "__main__":
