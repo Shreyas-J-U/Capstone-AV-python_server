@@ -15,6 +15,7 @@ UINT32 = struct.Struct("<I")
 UINT16 = struct.Struct("<H")
 UINT8 = struct.Struct("<B")
 
+
 def serialize_observation(
     observation: Observation,
 ) -> bytes:
@@ -72,6 +73,12 @@ def serialize_observation(
 
     if observation.image is None:
 
+        # Preserve existing behavior:
+        # width      = 0
+        # height     = 0
+        # channels   = 0
+        # image_size = 0
+
         data.extend(
             UINT32.pack(0)
         )
@@ -108,7 +115,9 @@ def serialize_observation(
             UINT32.pack(len(image.data))
         )
 
-        data.extend(image.data)
+        data.extend(
+            image.data
+        )
 
     # ----------------------------------------
     # Sensors
