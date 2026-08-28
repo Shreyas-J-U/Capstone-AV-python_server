@@ -1,205 +1,227 @@
 from pathlib import Path
 
 # pyrefly: ignore [missing-import]
-import numpy as np
-# pyrefly: ignore [missing-import]
-from PIL import Image
-# pyrefly: ignore [missing-import]
 from ultralytics import YOLO
 
 from perception.track_history import TrackHistory
 
 
-# ------------------------------------------------------------
-# Configuration
-# ------------------------------------------------------------
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
-ASSET_DIR = Path("tests/assets")
+BASE_DIR = Path(__file__).resolve().parent
+
+ASSETS_DIR = BASE_DIR / "assets"
 
 MODEL_PATH = "yolov8n.pt"
 
-CONFIDENCE = 0.4
+FRAME_PATHS = [
+    ASSETS_DIR / "frame1.png",
+    ASSETS_DIR / "frame2.png",
+    ASSETS_DIR / "frame3.png",
+    ASSETS_DIR / "frame4.png",
+    ASSETS_DIR / "frame5.png",
+]
 
-DEVICE = "cpu"
 
-
-def load_frame(path: Path) -> np.ndarray:
-    """
-    Load an image as raw RGB uint8 data.
-
-    This mimics the format that will eventually come
-    from Unreal ImageData.
-    """
-
-    image = Image.open(path).convert("RGB")
-
-    frame = np.asarray(
-        image,
-        dtype=np.uint8,
-    )
-
-    return frame
-
+# ============================================================
+# MAIN
+# ============================================================
 
 def main():
 
+    print()
+    print("=" * 70)
+    print("TEMPORAL PERCEPTION PIPELINE TEST")
+    print("YOLOv8 → ByteTrack → TrackHistory")
+    print("=" * 70)
+
     # --------------------------------------------------------
-    # Find frames
+    # Check input frames
     # --------------------------------------------------------
 
-    frame_paths = [
-        ASSET_DIR / "frame1.png",
-        ASSET_DIR / "frame2.png",
-        ASSET_DIR / "frame3.png",
-        ASSET_DIR / "frame4.png",
-        ASSET_DIR / "frame5.png",
-    ]
+    for frame_path in FRAME_PATHS:
 
-    for path in frame_paths:
-
-        if not path.exists():
+        if not frame_path.exists():
 
             raise FileNotFoundError(
-                f"Frame not found: {path}"
+                f"Frame not found: {frame_path}"
             )
 
     # --------------------------------------------------------
     # Load YOLO
     # --------------------------------------------------------
 
+    print()
+    print("Loading YOLO model...")
+
     model = YOLO(MODEL_PATH)
 
+    print("YOLO model loaded.")
+
     # --------------------------------------------------------
-    # Create TrackHistory
+    # Track history
     # --------------------------------------------------------
 
     history = TrackHistory(
         max_history=20
     )
 
-    print()
-    print("=" * 70)
-    print("PERCEPTION PIPELINE TEST")
-    print("YOLOv8 → ByteTrack → TrackHistory")
-    print("=" * 70)
-
     # --------------------------------------------------------
     # Process frames sequentially
     # --------------------------------------------------------
 
     for frame_number, frame_path in enumerate(
-        frame_paths,
-        start=1,
+        FRAME_PATHS,
+        start=1
     ):
 
         print()
+        print("=" * 70)
         print(
             f"FRAME {frame_number}: "
             f"{frame_path.name}"
         )
-
-        print("-" * 70)
-
-        # ----------------------------------------------------
-        # Load RGB frame
-        # ----------------------------------------------------
-
-        frame = load_frame(
-            frame_path
-        )
-
-        print(
-            f"Image shape: {frame.shape}"
-        )
+        print("=" * 70)
 
         # ----------------------------------------------------
         # YOLO + ByteTrack
         # ----------------------------------------------------
 
         results = model.track(
-            source=frame,
+            source=str(frame_path),
             persist=True,
             tracker="bytetrack.yaml",
-            conf=CONFIDENCE,
-            device=DEVICE,
             verbose=False,
         )
+
+        if not results:
+
+            print("No YOLO result.")
+
+            continue
 
         result = results[0]
 
         # ----------------------------------------------------
-        # Extract tracked objects
+        # Image information
+        # ----------------------------------------------------
+
+        if result.orig_img is not None:
+
+            height, width = result.orig_img.shape[:2]
+
+            print(
+                f"Image shape: "
+                f"({height}, {width}, 3)"
+            )
+
+        # ----------------------------------------------------
+        # Check boxes
+        # ----------------------------------------------------
+
+        if result.boxes is None:
+
+            print("No detections.")
+
+            continue
+
+        if len(result.boxes) == 0:
+
+            print("No detections.")
+
+            continue
+
+        # ----------------------------------------------------
+        # ByteTrack IDs
+        # ----------------------------------------------------
+
+        if result.boxes.id is None:
+
+            print(
+                "Detections found, "
+                "but no tracking IDs."
+            )
+
+            continue
+
+        boxes = result.boxes
+
+        track_ids = (
+            boxes.id
+            .int()
+            .cpu()
+            .tolist()
+        )
+
+        class_ids = (
+            boxes.cls
+            .int()
+            .cpu()
+            .tolist()
+        )
+
+        confidences = (
+            boxes.conf
+            .cpu()
+            .tolist()
+        )
+
+        bounding_boxes = (
+            boxes.xyxy
+            .cpu()
+            .tolist()
+        )
+
+        # ----------------------------------------------------
+        # Convert YOLO/ByteTrack output
+        # into TrackHistory format
         # ----------------------------------------------------
 
         tracked_objects = []
 
-        if (
-            result.boxes is not None
-            and result.boxes.id is not None
+        for (
+            track_id,
+            class_id,
+            confidence,
+            bbox,
+        ) in zip(
+            track_ids,
+            class_ids,
+            confidences,
+            bounding_boxes,
         ):
 
-            boxes = result.boxes
+            class_name = model.names[
+                class_id
+            ]
 
-            track_ids = (
-                boxes.id
-                .cpu()
-                .numpy()
-                .astype(int)
-            )
+            tracked_object = {
 
-            class_ids = (
-                boxes.cls
-                .cpu()
-                .numpy()
-                .astype(int)
-            )
+                "track_id": int(
+                    track_id
+                ),
 
-            confidences = (
-                boxes.conf
-                .cpu()
-                .numpy()
-            )
-
-            bboxes = (
-                boxes.xyxy
-                .cpu()
-                .numpy()
-            )
-
-            for i in range(
-                len(track_ids)
-            ):
-
-                track_id = int(
-                    track_ids[i]
-                )
-
-                class_id = int(
-                    class_ids[i]
-                )
-
-                confidence = float(
-                    confidences[i]
-                )
-
-                bbox = [
-                    float(x)
-                    for x in bboxes[i]
-                ]
-
-                class_name = result.names[
+                "class_id": int(
                     class_id
-                ]
+                ),
 
-                tracked_objects.append(
-                    {
-                        "track_id": track_id,
-                        "class_id": class_id,
-                        "class_name": class_name,
-                        "confidence": confidence,
-                        "bbox": bbox,
-                    }
-                )
+                "class_name": class_name,
+
+                "confidence": float(
+                    confidence
+                ),
+
+                "bbox": [
+                    float(value)
+                    for value in bbox
+                ],
+            }
+
+            tracked_objects.append(
+                tracked_object
+            )
 
         # ----------------------------------------------------
         # Update TrackHistory
@@ -210,63 +232,53 @@ def main():
         )
 
         # ----------------------------------------------------
-        # Print current detections
+        # Display current frame
         # ----------------------------------------------------
 
         if not tracked_objects:
 
-            print(
-                "No tracked objects."
-            )
+            print("No tracked objects.")
 
             continue
 
         for obj in tracked_objects:
 
-            track_id = obj[
-                "track_id"
-            ]
+            bbox = obj["bbox"]
 
-            center = (
+            center_x, center_y = (
                 history.calculate_center(
-                    obj["bbox"]
+                    bbox
                 )
             )
 
             print(
-                f"ID={track_id:<3} "
-                f"{obj['class_name']:<10} "
+                f"ID={obj['track_id']:<3} "
+                f"{obj['class_name']:<12} "
                 f"confidence="
                 f"{obj['confidence']:.3f} "
                 f"center="
-                f"({center[0]:.1f}, "
-                f"{center[1]:.1f})"
+                f"({center_x:.1f}, "
+                f"{center_y:.1f})"
             )
 
-    # --------------------------------------------------------
-    # Final trajectory summary
-    # --------------------------------------------------------
+    # ========================================================
+    # FINAL TRACK HISTORY
+    # ========================================================
 
     print()
     print("=" * 70)
     print("TRACK HISTORY SUMMARY")
     print("=" * 70)
 
-    all_tracks = (
-        history.get_all_tracks()
-    )
+    tracks = history.get_all_tracks()
 
-    if not all_tracks:
+    if not tracks:
 
-        print(
-            "No tracks were created."
-        )
+        print("No tracks were created.")
 
     else:
 
-        for track_id, data in (
-            all_tracks.items()
-        ):
+        for track_id, data in tracks.items():
 
             print()
             print(
@@ -283,27 +295,75 @@ def main():
                 f"{len(data['history'])}"
             )
 
-            print(
-                "Positions:"
-            )
+            print("Positions:")
 
-            for index, position in enumerate(
+            for timestep, position in enumerate(
                 data["history"]
             ):
 
+                x, y = position
+
                 print(
-                    f"  t{index}: "
-                    f"({position[0]:.2f}, "
-                    f"{position[1]:.2f})"
+                    f"  t{timestep}: "
+                    f"({x:.2f}, {y:.2f})"
                 )
+
+    # ========================================================
+    # COMPLETE
+    # ========================================================
 
     print()
     print("=" * 70)
-    print(
-        "PERCEPTION PIPELINE TEST COMPLETE"
-    )
+    print("TEMPORAL PERCEPTION TEST COMPLETE")
     print("=" * 70)
 
+    print()
+    print(
+        "Pipeline:"
+    )
+
+    print(
+        "Ordered Frames"
+    )
+
+    print(
+        "    ↓"
+    )
+
+    print(
+        "YOLOv8 Detection"
+    )
+
+    print(
+        "    ↓"
+    )
+
+    print(
+        "ByteTrack"
+    )
+
+    print(
+        "    ↓"
+    )
+
+    print(
+        "TrackHistory"
+    )
+
+    print(
+        "    ↓"
+    )
+
+    print(
+        "Object Trajectories"
+    )
+
+    print()
+
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
 
 if __name__ == "__main__":
     main()
