@@ -1,26 +1,20 @@
-from typing import Any
+from typing import Any, Optional
 
 # pyrefly: ignore [missing-import]
 from ultralytics.trackers.byte_tracker import BYTETracker
 
+from perception.safe_distance import SafeDistanceCalculator
+
 
 class ByteTracker:
     """
-    ByteTrack wrapper for Ultralytics 8.4.x.
+    ByteTrack wrapper for Ultralytics 8.4.x with optional safe distance evaluation.
 
     Input:
         Ultralytics Results object.
 
     Output:
-        List of dictionaries:
-
-        {
-            "track_id": 1,
-            "class_id": 2,
-            "class_name": "car",
-            "confidence": 0.91,
-            "bbox": [x1, y1, x2, y2]
-        }
+        List of dictionaries with tracking IDs and optional safe distance metrics.
     """
 
     def __init__(
@@ -31,9 +25,11 @@ class ByteTracker:
         track_buffer: int = 30,
         match_thresh: float = 0.8,
         frame_rate: int = 30,
+        safe_distance_calculator: Optional[SafeDistanceCalculator] = None,
     ):
         self.frame_id = 0
         self.frame_rate = frame_rate
+        self.safe_distance_calculator = safe_distance_calculator
 
         # --------------------------------------------------
         # Ultralytics 8.4.x tracker configuration
@@ -64,19 +60,13 @@ class ByteTracker:
     def update(
         self,
         results: Any,
+        ego_speed_ms: Optional[float] = None,
     ) -> list[dict]:
         """
         Update ByteTrack using YOLO results.
 
-        The important detail for Ultralytics 8.4.129 is:
-
-            results.boxes
-
-        is passed to BYTETracker.update().
-
-        Not:
-
-            results
+        If safe_distance_calculator is configured and ego_speed_ms is provided,
+        each tracked object is enriched with safe distance metrics.
         """
 
         self.frame_id += 1
@@ -138,19 +128,30 @@ class ByteTracker:
 
             class_name = results.names[class_id]
 
-            tracked_objects.append(
-                {
-                    "track_id": track_id,
-                    "class_id": class_id,
-                    "class_name": class_name,
-                    "confidence": confidence,
-                    "bbox": [
-                        x1,
-                        y1,
-                        x2,
-                        y2,
-                    ],
-                }
-            )
+            obj = {
+                "track_id": track_id,
+                "class_id": class_id,
+                "class_name": class_name,
+                "confidence": confidence,
+                "bbox": [
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                ],
+            }
+
+            image_width = None
+            if hasattr(results, "orig_shape") and results.orig_shape:
+                image_width = int(results.orig_shape[1])
+
+            if self.safe_distance_calculator is not None and ego_speed_ms is not None:
+                obj = self.safe_distance_calculator.enrich_detection(
+                    obj,
+                    ego_speed_ms=ego_speed_ms,
+                    image_width=image_width,
+                )
+
+            tracked_objects.append(obj)
 
         return tracked_objects

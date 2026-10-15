@@ -37,6 +37,16 @@ class TrackHistory:
             )
         )
 
+        # track_id -> deque[float] (estimated distances over time)
+        self.distance_history: Dict[
+            int,
+            deque
+        ] = defaultdict(
+            lambda: deque(
+                maxlen=self.max_history
+            )
+        )
+
         # track_id -> object metadata
         self.metadata: Dict[
             int,
@@ -104,9 +114,10 @@ class TrackHistory:
                 track_id
             ].append(center)
 
-            self.metadata[
-                track_id
-            ] = {
+            if "estimated_distance_m" in obj:
+                self.distance_history[track_id].append(float(obj["estimated_distance_m"]))
+
+            meta = {
                 "class_id": int(
                     obj["class_id"]
                 ),
@@ -119,6 +130,23 @@ class TrackHistory:
                 "bbox": list(bbox),
             }
 
+            for key in (
+                "estimated_distance_m",
+                "safe_distance_m",
+                "safe_distance_thw_m",
+                "safe_distance_rss_m",
+                "distance_margin_m",
+                "safety_status",
+                "size_category",
+                "size_factor",
+                "time_to_collision_s",
+                "bbox_dimensions",
+            ):
+                if key in obj:
+                    meta[key] = obj[key]
+
+            self.metadata[track_id] = meta
+
     def get_history(
         self,
         track_id: int,
@@ -129,6 +157,20 @@ class TrackHistory:
 
         return list(
             self.positions.get(
+                track_id,
+                []
+            )
+        )
+
+    def get_distance_history(
+        self,
+        track_id: int,
+    ) -> List[float]:
+        """
+        Return estimated distance history (in meters) for one track.
+        """
+        return list(
+            self.distance_history.get(
                 track_id,
                 []
             )
@@ -175,6 +217,9 @@ class TrackHistory:
                 "history": self.get_history(
                     track_id
                 ),
+                "distance_history": self.get_distance_history(
+                    track_id
+                ),
             }
 
         return tracks
@@ -185,4 +230,5 @@ class TrackHistory:
         """
 
         self.positions.clear()
+        self.distance_history.clear()
         self.metadata.clear()
