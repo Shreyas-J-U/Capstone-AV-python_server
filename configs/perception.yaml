@@ -1,0 +1,66 @@
+# Perception and Safe Distance Configuration
+
+camera:
+  fov_horizontal_deg: 90.0
+  image_width: 1280
+  image_height: 720
+  fov_vertical_deg: 59.0
+  focal_length_px: 640.0  # (image_width / 2) / tan(fov_h / 2)
+
+# Prior physical dimensions (meters), safety multipliers (alpha), and deceleration capabilities
+vehicle_priors:
+  car:
+    height_m: 1.50
+    width_m: 1.80
+    length_m: 4.50
+    alpha: 1.00
+    max_decel_ms2: 7.0
+  truck:
+    height_m: 3.40
+    width_m: 2.50
+    length_m: 10.00
+    alpha: 1.45
+    max_decel_ms2: 4.5
+  bus:
+    height_m: 3.20
+    width_m: 2.55
+    length_m: 12.00
+    alpha: 1.40
+    max_decel_ms2: 4.8
+  motorcycle:
+    height_m: 1.40
+    width_m: 0.80
+    length_m: 2.10
+    alpha: 1.30
+    max_decel_ms2: 5.5
+  bicycle:
+    height_m: 1.40
+    width_m: 0.60
+    length_m: 1.70
+    alpha: 1.35
+    max_decel_ms2: 5.0
+  person:
+    height_m: 1.70
+    width_m: 0.50
+    length_m: 0.30
+    alpha: 1.60
+    max_decel_ms2: 4.0
+  default:
+    height_m: 1.50
+    width_m: 1.80
+    length_m: 4.50
+    alpha: 1.00
+    max_decel_ms2: 6.0
+
+safety_params:
+  standstill_distance_m: 2.5
+  time_headway_s: 1.8
+  reaction_time_s: 0.5
+  ego_comfortable_decel_ms2: 6.0
+  warning_margin_multiplier: 1.25
+  critical_margin_multiplier: 1.00
+
+# Lane corridor and lateral filtering
+corridor_params:
+  lane_width_m: 3.6
+  lateral_corridor_half_width_m: 1.85
